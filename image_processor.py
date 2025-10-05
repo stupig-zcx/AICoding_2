@@ -311,25 +311,264 @@ class ImageProcessorApp:
     
     def save_image(self):
         if self.processed_image:
-            file_path = filedialog.asksaveasfilename(
-                title="保存图像",
-                defaultextension=".png",
-                filetypes=[
-                    ("PNG格式", "*.png"),
-                    ("JPEG格式", "*.jpg"),
-                    ("BMP格式", "*.bmp"),
-                    ("TIFF格式", "*.tiff")
-                ]
-            )
+            # 创建导出设置窗口
+            export_dialog = tk.Toplevel(self.root)
+            export_dialog.title("导出设置")
+            export_dialog.geometry("400x500")
+            export_dialog.resizable(True, True)  # 允许调整大小
+            export_dialog.transient(self.root)
+            export_dialog.grab_set()
             
-            if file_path:
+            # 创建主框架
+            main_frame = ttk.Frame(export_dialog)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # 创建canvas和scrollbar以支持滚动
+            canvas = tk.Canvas(main_frame)
+            scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+            scrollable_frame = ttk.Frame(canvas)
+            
+            # 配置滚动区域
+            def on_frame_configure(event=None):
+                canvas.configure(scrollregion=canvas.bbox("all"))
+                
+            scrollable_frame.bind("<Configure>", on_frame_configure)
+            
+            canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            
+            def on_canvas_configure(event):
+                canvas.itemconfig(canvas_window, width=event.width)
+                
+            canvas.bind("<Configure>", on_canvas_configure)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            
+            # 使用鼠标滚轮滚动
+            def _on_mousewheel(event):
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                
+            def _bind_to_mousewheel(event):
+                canvas.bind_all("<MouseWheel>", _on_mousewheel)
+                
+            def _unbind_from_mousewheel(event):
+                canvas.unbind_all("<MouseWheel>")
+                
+            canvas.bind('<Enter>', _bind_to_mousewheel)
+            canvas.bind('<Leave>', _unbind_from_mousewheel)
+            
+            # 导出选项变量
+            export_options = {
+                'naming_rule': tk.StringVar(value='original'),  # original, prefix, suffix
+                'prefix': tk.StringVar(value='wm_'),
+                'suffix': tk.StringVar(value='_watermarked'),
+                'jpeg_quality': tk.IntVar(value=95),
+                'prevent_overwrite': tk.BooleanVar(value=True),
+                'export_format': tk.StringVar(value='same'),  # same, jpeg, png
+                'export_directory': tk.StringVar()
+            }
+            
+            # 命名规则框架
+            naming_frame = ttk.LabelFrame(scrollable_frame, text="文件命名规则", padding=10)
+            naming_frame.pack(fill=tk.X, padx=5, pady=5)
+            
+            # 命名规则选项
+            ttk.Radiobutton(naming_frame, text="保留原文件名", 
+                           variable=export_options['naming_rule'], value='original').pack(anchor=tk.W)
+            
+            prefix_frame = ttk.Frame(naming_frame)
+            prefix_frame.pack(fill=tk.X, pady=2)
+            ttk.Radiobutton(prefix_frame, text="添加前缀:", 
+                           variable=export_options['naming_rule'], value='prefix').pack(side=tk.LEFT)
+            ttk.Entry(prefix_frame, textvariable=export_options['prefix'], width=15).pack(side=tk.LEFT, padx=(5, 0))
+            
+            suffix_frame = ttk.Frame(naming_frame)
+            suffix_frame.pack(fill=tk.X, pady=2)
+            ttk.Radiobutton(suffix_frame, text="添加后缀:", 
+                           variable=export_options['naming_rule'], value='suffix').pack(side=tk.LEFT)
+            ttk.Entry(suffix_frame, textvariable=export_options['suffix'], width=15).pack(side=tk.LEFT, padx=(5, 0))
+            
+            # 导出格式选择
+            format_frame = ttk.LabelFrame(scrollable_frame, text="导出格式", padding=10)
+            format_frame.pack(fill=tk.X, padx=5, pady=5)
+            
+            # 获取当前图像的扩展名
+            current_image = self.image_list[self.current_image_index]
+            original_ext = os.path.splitext(current_image['name'])[1].lower()
+            
+            ttk.Radiobutton(format_frame, text=f"保持原格式 ({original_ext.upper()[1:]})", 
+                           variable=export_options['export_format'], value='same').pack(anchor=tk.W)
+            ttk.Radiobutton(format_frame, text="JPEG", 
+                           variable=export_options['export_format'], value='jpeg').pack(anchor=tk.W)
+            ttk.Radiobutton(format_frame, text="PNG", 
+                           variable=export_options['export_format'], value='png').pack(anchor=tk.W)
+            
+            # JPEG质量设置（仅对JPEG格式有效）
+            quality_frame = ttk.LabelFrame(scrollable_frame, text="JPEG质量设置", padding=10)
+            # 注意：初始时不pack，由update_quality_visibility函数控制
+            
+            ttk.Label(quality_frame, text="质量:").pack(side=tk.LEFT)
+            quality_scale = ttk.Scale(quality_frame, from_=1, to=100, 
+                                     variable=export_options['jpeg_quality'], orient=tk.HORIZONTAL)
+            quality_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+            # 创建一个显示整数质量值的标签
+            quality_value = tk.IntVar()
+            quality_value.set(export_options['jpeg_quality'].get())
+            
+            # 当滑块值变化时更新显示
+            def update_quality_label(val):
+                quality_value.set(int(float(val)))
+            
+            quality_scale.configure(command=update_quality_label)
+            quality_label = ttk.Label(quality_frame, textvariable=quality_value)
+            quality_label.pack(side=tk.LEFT)
+            
+            # 导出目录和覆盖保护
+            dir_frame = ttk.LabelFrame(scrollable_frame, text="导出设置", padding=10)
+            dir_frame.pack(fill=tk.X, padx=5, pady=5)
+            
+            ttk.Checkbutton(dir_frame, text="防止覆盖原文件（默认导出到新文件夹）", 
+                           variable=export_options['prevent_overwrite']).pack(anchor=tk.W, pady=(0, 5))
+            
+            # 函数用于根据导出格式显示或隐藏JPEG质量设置
+            def update_quality_visibility(*args):
+                if export_options['export_format'].get() == 'jpeg':
+                    # JPEG格式始终显示质量设置
+                    quality_frame.pack(fill=tk.X, padx=5, pady=5)
+                elif export_options['export_format'].get() == 'same':
+                    # 检查原格式是否为JPEG
+                    if original_ext in ['.jpg', '.jpeg']:
+                        quality_frame.pack(fill=tk.X, padx=5, pady=5)
+                    else:
+                        quality_frame.pack_forget()
+                else:
+                    # PNG等其他格式不显示质量设置
+                    quality_frame.pack_forget()
+                
+                # 更新滚动区域
+                export_dialog.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            
+            # 绑定导出格式变化事件
+            export_options['export_format'].trace('w', update_quality_visibility)
+            
+            # 初始调用以设置正确的可见性
+            update_quality_visibility()
+            
+            # 自定义导出目录（放在最后）
+            custom_dir_frame = ttk.LabelFrame(scrollable_frame, text="自定义导出目录", padding=10)
+            custom_dir_frame.pack(fill=tk.X, padx=5, pady=5)
+            
+            ttk.Label(custom_dir_frame, text="导出目录:").pack(anchor=tk.W)
+            
+            dir_entry_frame = ttk.Frame(custom_dir_frame)
+            dir_entry_frame.pack(fill=tk.X, pady=2)
+            
+            ttk.Entry(dir_entry_frame, textvariable=export_options['export_directory'], 
+                     state='readonly').pack(side=tk.LEFT, fill=tk.X, expand=True)
+            ttk.Button(dir_entry_frame, text="浏览...", 
+                      command=lambda: self.select_export_directory(export_options['export_directory'])).pack(side=tk.RIGHT, padx=(5, 0))
+            
+            # 将canvas和scrollbar添加到main_frame
+            canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+            
+            # 导出按钮框架
+            button_frame = ttk.Frame(export_dialog)
+            button_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+            
+            def do_export():
                 try:
-                    self.processed_image.save(file_path)
-                    messagebox.showinfo("成功", f"图像已保存到:\n{file_path}")
+                    # 获取当前图像的目录和文件名
+                    current_image = self.image_list[self.current_image_index]
+                    original_dir = os.path.dirname(current_image['path'])
+                    original_name = os.path.splitext(current_image['name'])[0]
+                    
+                    # 根据命名规则确定文件名
+                    naming_rule = export_options['naming_rule'].get()
+                    if naming_rule == 'original':
+                        new_name = original_name
+                    elif naming_rule == 'prefix':
+                        new_name = export_options['prefix'].get() + original_name
+                    else:  # suffix
+                        new_name = original_name + export_options['suffix'].get()
+                    
+                    # 确定导出格式和扩展名
+                    export_format = export_options['export_format'].get()
+                    if export_format == 'same':
+                        ext = os.path.splitext(current_image['name'])[1]
+                    elif export_format == 'jpeg':
+                        ext = '.jpg'
+                    else:  # png
+                        ext = '.png'
+                    
+                    # 确定导出目录
+                    custom_dir = export_options['export_directory'].get()
+                    if custom_dir and os.path.isdir(custom_dir):
+                        # 使用自定义目录
+                        export_dir = custom_dir
+                    elif export_options['prevent_overwrite'].get():
+                        # 默认导出到原目录下的export子目录
+                        export_dir = os.path.join(original_dir, 'export')
+                        os.makedirs(export_dir, exist_ok=True)
+                    else:
+                        export_dir = original_dir
+                    
+                    # 构造完整路径
+                    export_path = os.path.join(export_dir, new_name + ext)
+                    
+                    # 处理JPEG质量和其他保存参数
+                    save_kwargs = {}
+                    if ext.lower() in ['.jpg', '.jpeg']:
+                        save_kwargs['quality'] = export_options['jpeg_quality'].get()
+                        save_kwargs['optimize'] = True
+                    
+                    # 保存图像
+                    self.processed_image.save(export_path, **save_kwargs)
+                    messagebox.showinfo("成功", f"图像已保存到:\n{export_path}")
+                    export_dialog.destroy()
                 except Exception as e:
                     messagebox.showerror("错误", f"保存图像时出错:\n{str(e)}")
+            
+            def save_as():
+                file_path = filedialog.asksaveasfilename(
+                    title="保存图像",
+                    defaultextension=".png",
+                    filetypes=[
+                        ("PNG格式", "*.png"),
+                        ("JPEG格式", "*.jpg"),
+                        ("BMP格式", "*.bmp"),
+                        ("TIFF格式", "*.tiff")
+                    ]
+                )
+                
+                if file_path:
+                    try:
+                        # 处理JPEG质量
+                        save_kwargs = {}
+                        if file_path.lower().endswith(('.jpg', '.jpeg')):
+                            save_kwargs['quality'] = export_options['jpeg_quality'].get()
+                            save_kwargs['optimize'] = True
+                        
+                        self.processed_image.save(file_path, **save_kwargs)
+                        messagebox.showinfo("成功", f"图像已保存到:\n{file_path}")
+                        export_dialog.destroy()
+                    except Exception as e:
+                        messagebox.showerror("错误", f"保存图像时出错:\n{str(e)}")
+            
+            ttk.Button(button_frame, text="导出", command=do_export).pack(side=tk.RIGHT, padx=5)
+            ttk.Button(button_frame, text="另存为...", command=save_as).pack(side=tk.RIGHT, padx=5)
+            ttk.Button(button_frame, text="取消", command=export_dialog.destroy).pack(side=tk.RIGHT, padx=5)
+            
+            # 确保初始时正确设置滚动区域
+            export_dialog.after(100, lambda: canvas.configure(scrollregion=canvas.bbox("all")))
+            
         else:
             messagebox.showwarning("警告", "没有可保存的图像")
+    
+    def select_export_directory(self, directory_var):
+        """选择导出目录"""
+        directory = filedialog.askdirectory(title="选择导出目录")
+        if directory:
+            directory_var.set(directory)
     
     # 处理拖拽文件的方法
     def on_drop(self, event):
