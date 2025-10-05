@@ -522,7 +522,22 @@ class ImageProcessorApp:
                         save_kwargs['optimize'] = True
                     
                     # 保存图像
-                    self.processed_image.save(export_path, **save_kwargs)
+                    # 检查是否需要转换图像模式（JPEG不支持RGBA模式）
+                    image_to_save = self.processed_image
+                    if ext.lower() in ['.jpg', '.jpeg'] and image_to_save.mode in ('RGBA', 'LA', 'P'):
+                        # 创建白色背景
+                        if image_to_save.mode == 'P':
+                            image_to_save = image_to_save.convert('RGBA')
+                        
+                        # 创建白色背景图像
+                        background = Image.new('RGB', image_to_save.size, (255, 255, 255))
+                        if image_to_save.mode == 'RGBA':
+                            background.paste(image_to_save, mask=image_to_save.split()[-1])  # 使用alpha通道作为掩码
+                        else:
+                            background.paste(image_to_save)
+                        image_to_save = background
+                    
+                    image_to_save.save(export_path, **save_kwargs)
                     messagebox.showinfo("成功", f"图像已保存到:\n{export_path}")
                     export_dialog.destroy()
                 except Exception as e:
@@ -548,7 +563,22 @@ class ImageProcessorApp:
                             save_kwargs['quality'] = export_options['jpeg_quality'].get()
                             save_kwargs['optimize'] = True
                         
-                        self.processed_image.save(file_path, **save_kwargs)
+                        # 检查是否需要转换图像模式（JPEG不支持RGBA模式）
+                        image_to_save = self.processed_image
+                        if file_path.lower().endswith(('.jpg', '.jpeg')) and image_to_save.mode in ('RGBA', 'LA', 'P'):
+                            # 创建白色背景
+                            if image_to_save.mode == 'P':
+                                image_to_save = image_to_save.convert('RGBA')
+                            
+                            # 创建白色背景图像
+                            background = Image.new('RGB', image_to_save.size, (255, 255, 255))
+                            if image_to_save.mode == 'RGBA':
+                                background.paste(image_to_save, mask=image_to_save.split()[-1])  # 使用alpha通道作为掩码
+                            else:
+                                background.paste(image_to_save)
+                            image_to_save = background
+                        
+                        image_to_save.save(file_path, **save_kwargs)
                         messagebox.showinfo("成功", f"图像已保存到:\n{file_path}")
                         export_dialog.destroy()
                     except Exception as e:
