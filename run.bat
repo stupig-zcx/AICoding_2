@@ -1,0 +1,6 @@
+@echo off
+echo 安装依赖...
+pip install -r requirements.txt
+echo 运行图像处理程序...
+python image_processor.py
+pause
