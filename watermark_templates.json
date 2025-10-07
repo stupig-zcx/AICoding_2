@@ -1,0 +1,15 @@
+{
+  "1": {
+    "text": "zcx  2019.2.1",
+    "font_family": "Arial",
+    "font_size": 21,
+    "bold": false,
+    "italic": false,
+    "color": "#cd0532",
+    "opacity": 196,
+    "shadow": false,
+    "outline": false,
+    "outline_color": "#FFFFFF",
+    "position": "bottom-right"
+  }
+}

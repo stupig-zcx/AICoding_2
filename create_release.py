@@ -2,11 +2,29 @@ import os
 import shutil
 import zipfile
 from datetime import datetime
+import subprocess
+import sys
 
 def create_release():
     # 定义源目录和目标目录
     build_dir = "build/exe.win-amd64-3.11"
     release_dir = "release"
+    
+    # 先重新编译项目
+    print("正在重新编译项目...")
+    try:
+        result = subprocess.run([sys.executable, "build_exe.py", "build"], 
+                              capture_output=True, text=True, check=True)
+        print("项目编译成功")
+        print(result.stdout)
+    except subprocess.CalledProcessError as e:
+        print("项目编译失败:")
+        print(e.stdout)
+        print(e.stderr)
+        return
+    except FileNotFoundError:
+        print("找不到build_exe.py文件或Python解释器")
+        return
     
     # 如果release目录已存在，先删除
     if os.path.exists(release_dir):
@@ -62,6 +80,7 @@ pause
 - 调整图像亮度和对比度
 - 应用滤镜效果（模糊、边缘增强、锐化）
 - 转换为灰度图像
+- 添加文本水印（支持中文字体、颜色、透明度、阴影、描边等设置）
 - 保存处理后的图像
 
 使用方法：
