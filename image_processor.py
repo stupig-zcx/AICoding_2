@@ -186,18 +186,27 @@ class ImageProcessorApp:
         # 默认水印变量
         self.default_watermark_vars = {
             'text': tk.StringVar(value="水印文本"),
-            'font_family': tk.StringVar(value="Microsoft YaHei"),  # 更改为微软雅黑作为默认字体
+            'font_family': tk.StringVar(value="Microsoft YaHei"),
             'font_size': tk.IntVar(value=20),
             'bold': tk.BooleanVar(value=False),
             'italic': tk.BooleanVar(value=False),
-            'color': tk.StringVar(value="#000000"),  # 黑色
-            'opacity': tk.IntVar(value=50),  # 50% 透明度 (0-100)
+            'color': tk.StringVar(value="#000000"),
+            'opacity': tk.IntVar(value=50),
             'shadow': tk.BooleanVar(value=False),
             'outline': tk.BooleanVar(value=False),
-            'outline_color': tk.StringVar(value="#FFFFFF"),  # 白色描边
-            'position': tk.StringVar(value="bottom-right"),  # 位置
-            'custom_x': tk.IntVar(value=0),  # 自定义X坐标
-            'custom_y': tk.IntVar(value=0)   # 自定义Y坐标
+            'outline_color': tk.StringVar(value="#FFFFFF"),
+            'position': tk.StringVar(value="bottom-right"),
+            'custom_x': tk.IntVar(value=0),
+            'custom_y': tk.IntVar(value=0),
+            'text_rotation': tk.DoubleVar(value=0.0),  # 文字水印旋转角度
+            'image_path': tk.StringVar(value=""),
+            'image_opacity': tk.IntVar(value=50),
+            'image_scale': tk.DoubleVar(value=1.0),
+            'use_image': tk.BooleanVar(value=False),
+            'image_position': tk.StringVar(value="bottom-right"),
+            'image_custom_x': tk.IntVar(value=0),
+            'image_custom_y': tk.IntVar(value=0),
+            'image_rotation': tk.DoubleVar(value=0.0)  # 图片水印旋转角度
         }
         
         # 水印拖拽相关变量
@@ -400,6 +409,8 @@ class ImageProcessorApp:
                             watermark_vars[key] = tk.BooleanVar(value=var.get())
                         elif isinstance(var, tk.IntVar):
                             watermark_vars[key] = tk.IntVar(value=var.get())
+                        elif isinstance(var, tk.DoubleVar):
+                            watermark_vars[key] = tk.DoubleVar(value=var.get())
                             
                     self.image_list.append({
                         'path': file_path,
@@ -561,153 +572,263 @@ class ImageProcessorApp:
             
         watermark_vars = current_image['watermark_vars']
         
-        # 获取水印设置
-        text = watermark_vars['text'].get()
-        if not text:
-            return image
-            
         # 创建水印图像
         watermark = Image.new('RGBA', image.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(watermark)
         
-        # 获取字体设置
-        font_family = watermark_vars['font_family'].get()
-        font_size = watermark_vars['font_size'].get()
-        bold = watermark_vars['bold'].get()
-        italic = watermark_vars['italic'].get()
-        
-        # 尝试加载字体
-        font_obj = None
-        try:
-            # 在Windows上尝试加载系统字体
-            if os.name == 'nt':  # Windows
-                # 构造字体文件名
-                font_filename = font_family.lower().replace(' ', '')
-                # 根据粗体和斜体设置构造字体文件名
-                if bold and italic:
-                    font_path = f"C:/Windows/Fonts/{font_filename}bi.ttf"
-                elif bold:
-                    font_path = f"C:/Windows/Fonts/{font_filename}bd.ttf"  # bd instead of b
-                elif italic:
-                    font_path = f"C:/Windows/Fonts/{font_filename}i.ttf"
-                else:
-                    font_path = f"C:/Windows/Fonts/{font_filename}.ttf"
-                    
-                if not os.path.exists(font_path):
-                    # 尝试其他可能的命名方式
-                    if bold:
-                        font_path = f"C:/Windows/Fonts/{font_filename}-bold.ttf"
-                    if italic:
-                        font_path = f"C:/Windows/Fonts/{font_filename}-italic.ttf"
-                    if bold and italic:
-                        font_path = f"C:/Windows/Fonts/{font_filename}-bolditalic.ttf"
-                        
-                if os.path.exists(font_path):
-                    font_obj = ImageFont.truetype(font_path, font_size)
-        except:
-            pass
+        # 应用文本水印（如果设置了文本内容）
+        text = watermark_vars['text'].get()
+        if text:
+            # 获取字体设置
+            font_family = watermark_vars['font_family'].get()
+            font_size = watermark_vars['font_size'].get()
+            bold = watermark_vars['bold'].get()
+            italic = watermark_vars['italic'].get()
             
-        # 如果上面的方法失败了，尝试使用 PIL 的默认字体处理方式
-        if font_obj is None:
+            # 尝试加载字体
+            font_obj = None
             try:
-                # 尝试使用系统字体加载
-                font_obj = ImageFont.truetype(font_family, font_size)
-            except:
-                try:
-                    # 如果指定字体失败，尝试使用支持中文的默认字体
-                    # 在Windows上尝试使用支持中文的字体
-                    if os.name == 'nt':
-                        chinese_fonts = [
-                            "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
-                            "C:/Windows/Fonts/simhei.ttf",    # 黑体
-                            "C:/Windows/Fonts/simsun.ttc",    # 宋体
-                            "C:/Windows/Fonts/msgothic.ttc"   # 微软正黑体
-                        ]
+                # 在Windows上尝试加载系统字体
+                if os.name == 'nt':  # Windows
+                    # 构造字体文件名
+                    font_filename = font_family.lower().replace(' ', '')
+                    # 根据粗体和斜体设置构造字体文件名
+                    if bold and italic:
+                        font_path = f"C:/Windows/Fonts/{font_filename}bi.ttf"
+                    elif bold:
+                        font_path = f"C:/Windows/Fonts/{font_filename}bd.ttf"  # bd instead of b
+                    elif italic:
+                        font_path = f"C:/Windows/Fonts/{font_filename}i.ttf"
+                    else:
+                        font_path = f"C:/Windows/Fonts/{font_filename}.ttf"
                         
-                        for font_path in chinese_fonts:
-                            if os.path.exists(font_path):
-                                try:
-                                    font_obj = ImageFont.truetype(font_path, font_size)
-                                    break
-                                except:
-                                    continue
-                                
-                    # 如果还是失败，使用默认字体
-                    if font_obj is None:
-                        font_obj = ImageFont.load_default()
-                except:
-                    font_obj = ImageFont.load_default()
-            
-        # 获取文本颜色和透明度
-        color = watermark_vars['color'].get()
-        # 将0-100的透明度转换为0-255
-        opacity_percent = watermark_vars['opacity'].get()
-        opacity = int(opacity_percent * 2.55)  # 转换为0-255范围
-        
-        # 解析颜色
-        if color.startswith('#'):
-            r = int(color[1:3], 16)
-            g = int(color[3:5], 16)
-            b = int(color[5:7], 16)
-        else:
-            r, g, b = 0, 0, 0
-            
-        text_color = (r, g, b, opacity)
-        
-        # 获取文本尺寸
-        bbox = draw.textbbox((0, 0), text, font=font_obj)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        
-        # 计算水印位置
-        position = watermark_vars['position'].get()
-        margin = 10
-        
-        # 检查是否是自定义位置
-        if position == "custom":
-            x = watermark_vars['custom_x'].get()
-            y = watermark_vars['custom_y'].get()
-            # 确保水印在图像范围内
-            x = max(0, min(x, image.size[0] - text_width))
-            y = max(0, min(y, image.size[1] - text_height))
-        elif position == "top-left":
-            x, y = margin, margin
-        elif position == "top-right":
-            x, y = image.size[0] - text_width - margin, margin
-        elif position == "bottom-left":
-            x, y = margin, image.size[1] - text_height - margin
-        elif position == "bottom-right":
-            x, y = image.size[0] - text_width - margin, image.size[1] - text_height - margin
-        elif position == "center":
-            x, y = (image.size[0] - text_width) // 2, (image.size[1] - text_height) // 2
-        else:
-            x, y = image.size[0] - text_width - margin, image.size[1] - text_height - margin
-            
-        # 绘制阴影
-        if watermark_vars['shadow'].get():
-            shadow_color = (0, 0, 0, opacity // 2)
-            draw.text((x + 2, y + 2), text, font=font_obj, fill=shadow_color)
-            
-        # 绘制描边
-        if watermark_vars['outline'].get():
-            outline_color = watermark_vars['outline_color'].get()
-            if outline_color.startswith('#'):
-                or_val = int(outline_color[1:3], 16)
-                og_val = int(outline_color[3:5], 16)
-                ob_val = int(outline_color[5:7], 16)
-            else:
-                or_val, og_val, ob_val = 255, 255, 255
+                    if not os.path.exists(font_path):
+                        # 尝试其他可能的命名方式
+                        if bold and italic:
+                            font_path = f"C:/Windows/Fonts/{font_filename}-bolditalic.ttf"
+                        elif bold:
+                            font_path = f"C:/Windows/Fonts/{font_filename}-bold.ttf"
+                        elif italic:
+                            font_path = f"C:/Windows/Fonts/{font_filename}-italic.ttf"
+                            
+                    if os.path.exists(font_path):
+                        font_obj = ImageFont.truetype(font_path, font_size)
+            except Exception as e:
+                print(f"加载字体时出错: {e}")
+                pass
                 
-            outline_color_rgba = (or_val, og_val, ob_val, opacity)
+            # 如果上面的方法失败了，尝试使用 PIL 的默认字体处理方式
+            if font_obj is None:
+                try:
+                    # 尝试使用系统字体加载
+                    font_obj = ImageFont.truetype(font_family, font_size)
+                except:
+                    try:
+                        # 如果指定字体失败，尝试使用支持中文的默认字体
+                        # 在Windows上尝试使用支持中文的字体
+                        if os.name == 'nt':
+                            chinese_fonts = [
+                                "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
+                                "C:/Windows/Fonts/simhei.ttf",    # 黑体
+                                "C:/Windows/Fonts/simsun.ttc",    # 宋体
+                                "C:/Windows/Fonts/msgothic.ttc"   # 微软正黑体
+                            ]
+                            
+                            for font_path in chinese_fonts:
+                                if os.path.exists(font_path):
+                                    try:
+                                        font_obj = ImageFont.truetype(font_path, font_size)
+                                        break
+                                    except:
+                                        continue
+                                    
+                        # 如果还是失败，使用默认字体
+                        if font_obj is None:
+                            font_obj = ImageFont.load_default()
+                    except:
+                        font_obj = ImageFont.load_default()
+                
+            # 获取文本颜色和透明度
+            color = watermark_vars['color'].get()
+            # 将0-100的透明度转换为0-255（现在是数值越高越透明）
+            opacity_percent = watermark_vars['opacity'].get()
+            opacity = int((100 - opacity_percent) * 2.55)  # 转换为0-255范围，100变为0（完全透明），0变为255（完全不透明）
             
-            # 绘制描边（在文本周围绘制多个偏移的文本）
-            for dx in [-1, 0, 1]:
-                for dy in [-1, 0, 1]:
-                    if dx != 0 or dy != 0:
-                        draw.text((x + dx, y + dy), text, font=font_obj, fill=outline_color_rgba)
+            # 解析颜色
+            if color.startswith('#'):
+                r = int(color[1:3], 16)
+                g = int(color[3:5], 16)
+                b = int(color[5:7], 16)
+            else:
+                r, g, b = 0, 0, 0
+                
+            text_color = (r, g, b, opacity)
+            
+            # 获取文本尺寸
+            bbox = draw.textbbox((0, 0), text, font=font_obj)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            # 创建单独的文本图像用于旋转
+            text_image = Image.new('RGBA', (text_width + 20, text_height + 20), (0, 0, 0, 0))
+            text_draw = ImageDraw.Draw(text_image)
+            
+            # 绘制阴影
+            if watermark_vars['shadow'].get():
+                shadow_color = (0, 0, 0, opacity // 2)
+                text_draw.text((10 + 2, 10 + 2), text, font=font_obj, fill=shadow_color)
+                
+            # 绘制描边
+            if watermark_vars['outline'].get():
+                outline_color = watermark_vars['outline_color'].get()
+                if outline_color.startswith('#'):
+                    or_val = int(outline_color[1:3], 16)
+                    og_val = int(outline_color[3:5], 16)
+                    ob_val = int(outline_color[5:7], 16)
+                else:
+                    or_val, og_val, ob_val = 255, 255, 255
+                    
+                outline_color_rgba = (or_val, og_val, ob_val, opacity)
+                
+                # 绘制描边（在文本周围绘制多个偏移的文本）
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        if dx != 0 or dy != 0:
+                            text_draw.text((10 + dx, 10 + dy), text, font=font_obj, fill=outline_color_rgba)
+            
+            # 绘制主文本
+            # 处理粗体和斜体效果
+            if bold and italic:
+                # 手动实现粗体效果（通过多次绘制偏移）
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        if dx != 0 or dy != 0:
+                            text_draw.text((10 + dx, 10 + dy), text, font=font_obj, fill=text_color)
+            elif bold:
+                # 手动实现粗体效果
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        if dx != 0 or dy != 0:
+                            text_draw.text((10 + dx, 10 + dy), text, font=font_obj, fill=text_color)
+            elif italic:
+                # 实现斜体效果 - 通过水平错切变换
+                # 先正常绘制文本
+                text_draw.text((10, 10), text, font=font_obj, fill=text_color)
+            else:
+                text_draw.text((10, 10), text, font=font_obj, fill=text_color)
+            
+            # 如果需要斜体效果，则对文本图像进行变换
+            if italic:
+                # 实现斜体效果 - 通过水平错切变换
+                # 获取文本图像的尺寸
+                text_img_width, text_img_height = text_image.size
+                
+                # 定义错切因子（斜体倾斜程度）
+                skew_factor = 0.2
+                
+                # 创建一个新的图像来容纳变换后的文本
+                # 增加宽度以适应斜体效果
+                new_width = int(text_img_width + text_img_height * skew_factor)
+                skewed_image = Image.new('RGBA', (new_width, text_img_height), (0, 0, 0, 0))
+                
+                # 对每一行应用错切变换
+                for y in range(text_img_height):
+                    # 计算该行的错切偏移
+                    offset = int((text_img_height - y) * skew_factor)
+                    
+                    # 获取并粘贴该行像素
+                    line = text_image.crop((0, y, text_img_width, y + 1))
+                    skewed_image.paste(line, (offset, y))
+                
+                # 更新text_image为斜体变换后的图像
+                text_image = skewed_image
+            
+            # 获取旋转角度并应用旋转
+            text_rotation = watermark_vars['text_rotation'].get()
+            if text_rotation != 0:
+                text_image = text_image.rotate(text_rotation, expand=1)
+            
+            # 计算文本水印位置
+            position = watermark_vars['position'].get()
+            margin = 10
+            
+            # 检查是否是自定义位置
+            if position == "custom":
+                x = watermark_vars['custom_x'].get()
+                y = watermark_vars['custom_y'].get()
+                # 确保水印在图像范围内
+                x = max(0, min(x, image.size[0] - text_image.width))
+                y = max(0, min(y, image.size[1] - text_image.height))
+            elif position == "top-left":
+                x, y = margin, margin
+            elif position == "top-right":
+                x, y = image.size[0] - text_image.width - margin, margin
+            elif position == "bottom-left":
+                x, y = margin, image.size[1] - text_image.height - margin
+            elif position == "bottom-right":
+                x, y = image.size[0] - text_image.width - margin, image.size[1] - text_image.height - margin
+            elif position == "center":
+                x, y = (image.size[0] - text_image.width) // 2, (image.size[1] - text_image.height) // 2
+            else:
+                x, y = image.size[0] - text_image.width - margin, image.size[1] - text_image.height - margin
+                
+            # 将旋转后的文本水印粘贴到水印图层
+            watermark.paste(text_image, (x, y), text_image)
         
-        # 绘制主文本
-        draw.text((x, y), text, font=font_obj, fill=text_color)
+        # 应用图片水印（如果设置了图片路径）
+        if watermark_vars['image_path'].get():
+            try:
+                # 加载图片水印
+                watermark_image = Image.open(watermark_vars['image_path'].get()).convert("RGBA")
+                
+                # 获取缩放比例
+                scale = watermark_vars['image_scale'].get()
+                if scale != 1.0:
+                    new_width = int(watermark_image.width * scale)
+                    new_height = int(watermark_image.height * scale)
+                    watermark_image = watermark_image.resize((new_width, new_height), Image.LANCZOS)
+                
+                # 获取透明度
+                image_opacity = watermark_vars['image_opacity'].get()
+                if image_opacity > 0:
+                    # 调整透明度（数值越高越透明）
+                    alpha = watermark_image.split()[-1]  # 获取alpha通道
+                    alpha = Image.eval(alpha, lambda x: int(x * (100 - image_opacity) / 100))
+                    watermark_image.putalpha(alpha)
+                
+                # 获取旋转角度并应用旋转
+                image_rotation = watermark_vars['image_rotation'].get()
+                if image_rotation != 0:
+                    watermark_image = watermark_image.rotate(image_rotation, expand=1)
+                
+                # 计算图片水印位置
+                image_position = watermark_vars['image_position'].get()
+                margin = 10
+                
+                # 检查是否是自定义位置
+                if image_position == "custom":
+                    x = watermark_vars['image_custom_x'].get()
+                    y = watermark_vars['image_custom_y'].get()
+                    # 确保水印在图像范围内
+                    x = max(0, min(x, image.size[0] - watermark_image.width))
+                    y = max(0, min(y, image.size[1] - watermark_image.height))
+                elif image_position == "top-left":
+                    x, y = margin, margin
+                elif image_position == "top-right":
+                    x, y = image.size[0] - watermark_image.width - margin, margin
+                elif image_position == "bottom-left":
+                    x, y = margin, image.size[1] - watermark_image.height - margin
+                elif image_position == "bottom-right":
+                    x, y = image.size[0] - watermark_image.width - margin, image.size[1] - watermark_image.height - margin
+                elif image_position == "center":
+                    x, y = (image.size[0] - watermark_image.width) // 2, (image.size[1] - watermark_image.height) // 2
+                else:
+                    x, y = image.size[0] - watermark_image.width - margin, image.size[1] - watermark_image.height - margin
+                
+                # 将图片水印粘贴到水印图层
+                watermark.paste(watermark_image, (x, y), watermark_image)
+            except Exception as e:
+                print(f"加载图片水印时出错: {e}")
         
         # 将水印合并到图像上
         watermarked_image = Image.alpha_composite(image.convert('RGBA'), watermark)
@@ -723,13 +844,20 @@ class ImageProcessorApp:
         current_image = self.image_list[self.current_image_index]
         watermark_vars = current_image['watermark_vars']
         
-        # 设置水印位置为自定义
-        watermark_vars['position'].set("custom")
+        # 检查点击位置以确定拖拽的是文本水印还是图片水印
+        watermark_type = self.get_watermark_at_position(event)
         
         # 设置拖拽状态
         self.watermark_drag_data["x"] = event.x
         self.watermark_drag_data["y"] = event.y
         self.watermark_drag_data["dragging"] = True
+        self.watermark_drag_data["type"] = watermark_type
+        
+        # 根据拖拽类型设置对应水印位置为自定义
+        if watermark_type == "text":
+            watermark_vars['position'].set("custom")
+        elif watermark_type == "image":
+            watermark_vars['image_position'].set("custom")
         
         # 计算图像在画布中的位置和缩放比例
         if self.processed_image:
@@ -762,9 +890,214 @@ class ImageProcessorApp:
             image_x = max(0, min(image_x, img_width - 1))
             image_y = max(0, min(image_y, img_height - 1))
             
-            # 设置水印位置
-            watermark_vars['custom_x'].set(image_x)
-            watermark_vars['custom_y'].set(image_y)
+            # 根据拖拽类型设置对应水印位置
+            if watermark_type == "text":
+                watermark_vars['custom_x'].set(image_x)
+                watermark_vars['custom_y'].set(image_y)
+            elif watermark_type == "image":
+                watermark_vars['image_custom_x'].set(image_x)
+                watermark_vars['image_custom_y'].set(image_y)
+    
+    def get_watermark_at_position(self, event):
+        """检查点击位置是否有水印，返回水印类型"""
+        if not self.processed_image:
+            return None
+            
+        # 获取当前图像的水印设置
+        current_image = self.image_list[self.current_image_index]
+        watermark_vars = current_image['watermark_vars']
+        
+        # 获取画布尺寸
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        
+        # 如果画布尺寸为1（初始状态），使用预览框架的尺寸
+        if canvas_width <= 1 or canvas_height <= 1:
+            canvas_width = self.canvas.winfo_reqwidth()
+            canvas_height = self.canvas.winfo_reqheight()
+        
+        # 计算缩放比例
+        img_width, img_height = self.processed_image.size
+        scale_x = canvas_width / img_width
+        scale_y = canvas_height / img_height
+        scale = min(scale_x, scale_y, 1.0)  # 不放大图像
+        
+        # 计算图像在画布中的实际位置
+        display_width = int(img_width * scale)
+        display_height = int(img_height * scale)
+        offset_x = (canvas_width - display_width) // 2
+        offset_y = (canvas_height - display_height) // 2
+        
+        # 将鼠标坐标转换为图像坐标
+        image_x = int((event.x - offset_x) / scale)
+        image_y = int((event.y - offset_y) / scale)
+        
+        # 检查是否有文本水印
+        text = watermark_vars['text'].get()
+        if text:
+            # 获取文本水印位置
+            position = watermark_vars['position'].get()
+            margin = 10
+            
+            # 获取字体设置
+            font_family = watermark_vars['font_family'].get()
+            font_size = watermark_vars['font_size'].get()
+            bold = watermark_vars['bold'].get()
+            italic = watermark_vars['italic'].get()
+            
+            # 创建临时绘图对象以计算文本尺寸
+            temp_image = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+            temp_draw = ImageDraw.Draw(temp_image)
+            
+            # 尝试加载字体
+            font_obj = None
+            try:
+                # 在Windows上尝试加载系统字体
+                if os.name == 'nt':  # Windows
+                    # 构造字体文件名
+                    font_filename = font_family.lower().replace(' ', '')
+                    # 根据粗体和斜体设置构造字体文件名
+                    if bold and italic:
+                        font_path = f"C:/Windows/Fonts/{font_filename}bi.ttf"
+                    elif bold:
+                        font_path = f"C:/Windows/Fonts/{font_filename}bd.ttf"  # bd instead of b
+                    elif italic:
+                        font_path = f"C:/Windows/Fonts/{font_filename}i.ttf"
+                    else:
+                        font_path = f"C:/Windows/Fonts/{font_filename}.ttf"
+                        
+                    if not os.path.exists(font_path):
+                        # 尝试其他可能的命名方式
+                        if bold and italic:
+                            font_path = f"C:/Windows/Fonts/{font_filename}-bolditalic.ttf"
+                        elif bold:
+                            font_path = f"C:/Windows/Fonts/{font_filename}-bold.ttf"
+                        elif italic:
+                            font_path = f"C:/Windows/Fonts/{font_filename}-italic.ttf"
+                            
+                    if os.path.exists(font_path):
+                        font_obj = ImageFont.truetype(font_path, font_size)
+            except Exception as e:
+                print(f"加载字体时出错: {e}")
+                pass
+                
+            # 如果上面的方法失败了，尝试使用 PIL 的默认字体处理方式
+            if font_obj is None:
+                try:
+                    # 尝试使用系统字体加载
+                    font_obj = ImageFont.truetype(font_family, font_size)
+                except:
+                    try:
+                        # 如果指定字体失败，尝试使用支持中文的默认字体
+                        # 在Windows上尝试使用支持中文的字体
+                        if os.name == 'nt':
+                            chinese_fonts = [
+                                "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
+                                "C:/Windows/Fonts/simhei.ttf",    # 黑体
+                                "C:/Windows/Fonts/simsun.ttc",    # 宋体
+                                "C:/Windows/Fonts/msgothic.ttc"   # 微软正黑体
+                            ]
+                            
+                            for font_path in chinese_fonts:
+                                if os.path.exists(font_path):
+                                    try:
+                                        font_obj = ImageFont.truetype(font_path, font_size)
+                                        break
+                                    except:
+                                        continue
+                                    
+                        # 如果还是失败，使用默认字体
+                        if font_obj is None:
+                            font_obj = ImageFont.load_default()
+                    except:
+                        font_obj = ImageFont.load_default()
+            
+            # 获取文本尺寸
+            bbox = temp_draw.textbbox((0, 0), text, font=font_obj)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            # 计算文本水印位置
+            if position == "custom":
+                x = watermark_vars['custom_x'].get()
+                y = watermark_vars['custom_y'].get()
+            elif position == "top-left":
+                x, y = margin, margin
+            elif position == "top-right":
+                x, y = img_width - text_width - margin, margin
+            elif position == "bottom-left":
+                x, y = margin, img_height - text_height - margin
+            elif position == "bottom-right":
+                x, y = img_width - text_width - margin, img_height - text_height - margin
+            elif position == "center":
+                x, y = (img_width - text_width) // 2, (img_height - text_height) // 2
+            else:
+                x, y = img_width - text_width - margin, img_height - text_height - margin
+            
+            # 检查点击位置是否在文本水印范围内
+            # 如果文本水印有旋转，则使用一个更宽松的检测范围
+            text_rotation = watermark_vars['text_rotation'].get()
+            if text_rotation != 0:
+                # 对于旋转的水印，我们使用一个更大的检测区域
+                buffer = 50  # 增加缓冲区以适应旋转后的水印
+                if x - buffer <= image_x <= x + text_width + buffer and y - buffer <= image_y <= y + text_height + buffer:
+                    return "text"
+            else:
+                # 未旋转的水印使用精确检测
+                if x <= image_x <= x + text_width and y <= image_y <= y + text_height:
+                    return "text"
+        
+        # 检查是否有图片水印
+        if watermark_vars['image_path'].get():
+            try:
+                # 获取图片水印位置
+                image_position = watermark_vars['image_position'].get()
+                margin = 10
+                
+                # 加载图片水印以获取尺寸
+                watermark_image = Image.open(watermark_vars['image_path'].get()).convert("RGBA")
+                
+                # 获取缩放比例
+                scale = watermark_vars['image_scale'].get()
+                if scale != 1.0:
+                    new_width = int(watermark_image.width * scale)
+                    new_height = int(watermark_image.height * scale)
+                    watermark_image = watermark_image.resize((new_width, new_height), Image.LANCZOS)
+                
+                # 计算图片水印位置
+                if image_position == "custom":
+                    x = watermark_vars['image_custom_x'].get()
+                    y = watermark_vars['image_custom_y'].get()
+                elif image_position == "top-left":
+                    x, y = margin, margin
+                elif image_position == "top-right":
+                    x, y = img_width - watermark_image.width - margin, margin
+                elif image_position == "bottom-left":
+                    x, y = margin, img_height - watermark_image.height - margin
+                elif image_position == "bottom-right":
+                    x, y = img_width - watermark_image.width - margin, img_height - watermark_image.height - margin
+                elif image_position == "center":
+                    x, y = (img_width - watermark_image.width) // 2, (img_height - watermark_image.height) // 2
+                else:
+                    x, y = img_width - watermark_image.width - margin, img_height - watermark_image.height - margin
+                
+                # 检查点击位置是否在图片水印范围内
+                # 如果图片水印有旋转，则使用一个更宽松的检测范围
+                image_rotation = watermark_vars['image_rotation'].get()
+                if image_rotation != 0:
+                    # 对于旋转的水印，我们使用一个更大的检测区域
+                    buffer = 50  # 增加缓冲区以适应旋转后的水印
+                    if x - buffer <= image_x <= x + watermark_image.width + buffer and y - buffer <= image_y <= y + watermark_image.height + buffer:
+                        return "image"
+                else:
+                    # 未旋转的水印使用精确检测
+                    if x <= image_x <= x + watermark_image.width and y <= image_y <= y + watermark_image.height:
+                        return "image"
+            except Exception as e:
+                print(f"检查图片水印时出错: {e}")
+        
+        # 如果没有水印或点击位置不在水印上，返回None
+        return None
     
     def on_watermark_drag(self, event):
         """水印拖拽中"""
@@ -775,8 +1108,14 @@ class ImageProcessorApp:
         current_image = self.image_list[self.current_image_index]
         watermark_vars = current_image['watermark_vars']
         
-        # 设置水印位置为自定义
-        watermark_vars['position'].set("custom")
+        # 获取拖拽类型
+        watermark_type = self.watermark_drag_data.get("type", None)
+        
+        # 根据拖拽类型设置对应水印位置为自定义
+        if watermark_type == "text":
+            watermark_vars['position'].set("custom")
+        elif watermark_type == "image":
+            watermark_vars['image_position'].set("custom")
         
         # 计算图像在画布中的位置和缩放比例
         if self.processed_image:
@@ -809,9 +1148,13 @@ class ImageProcessorApp:
             image_x = max(0, min(image_x, img_width - 1))
             image_y = max(0, min(image_y, img_height - 1))
             
-            # 设置水印位置
-            watermark_vars['custom_x'].set(image_x)
-            watermark_vars['custom_y'].set(image_y)
+            # 根据拖拽类型设置对应水印位置
+            if watermark_type == "text":
+                watermark_vars['custom_x'].set(image_x)
+                watermark_vars['custom_y'].set(image_y)
+            elif watermark_type == "image":
+                watermark_vars['image_custom_x'].set(image_x)
+                watermark_vars['image_custom_y'].set(image_y)
         
         # 更新预览
         self.display_image_on_canvas()
@@ -819,6 +1162,7 @@ class ImageProcessorApp:
     def end_watermark_drag(self, event):
         """结束水印拖拽"""
         self.watermark_drag_data["dragging"] = False
+        self.watermark_drag_data["type"] = None
     
     def show_watermark_settings(self):
         """显示水印设置对话框"""
@@ -838,9 +1182,23 @@ class ImageProcessorApp:
                     watermark_vars[key] = tk.BooleanVar(value=var.get())
                 elif isinstance(var, tk.IntVar):
                     watermark_vars[key] = tk.IntVar(value=var.get())
+                elif isinstance(var, tk.DoubleVar):
+                    watermark_vars[key] = tk.DoubleVar(value=var.get())
             current_image['watermark_vars'] = watermark_vars
         else:
+            # 确保所有水印变量都存在（特别是新增的图片水印相关变量）
             watermark_vars = current_image['watermark_vars']
+            # 检查并添加缺失的变量
+            for key, var in self.default_watermark_vars.items():
+                if key not in watermark_vars:
+                    if isinstance(var, tk.StringVar):
+                        watermark_vars[key] = tk.StringVar(value=var.get())
+                    elif isinstance(var, tk.BooleanVar):
+                        watermark_vars[key] = tk.BooleanVar(value=var.get())
+                    elif isinstance(var, tk.IntVar):
+                        watermark_vars[key] = tk.IntVar(value=var.get())
+                    elif isinstance(var, tk.DoubleVar):
+                        watermark_vars[key] = tk.DoubleVar(value=var.get())
         
         # 创建水印设置窗口
         watermark_dialog = tk.Toplevel(self.root)
@@ -970,6 +1328,26 @@ class ImageProcessorApp:
         opacity_label = ttk.Label(opacity_frame, textvariable=opacity_value)
         opacity_label.pack(side=tk.LEFT)
         
+        # 文本水印旋转设置
+        text_rotation_frame = ttk.Frame(color_frame)
+        text_rotation_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(text_rotation_frame, text="文字旋转:").pack(side=tk.LEFT)
+        
+        # 创建一个显示一位小数的文本旋转角度标签
+        text_rotation_value = tk.DoubleVar()
+        text_rotation_value.set(round(watermark_vars['text_rotation'].get(), 1))
+        
+        # 当滑块值变化时更新显示（保留一位小数）
+        def update_text_rotation_label(val):
+            text_rotation_value.set(round(float(val), 1))
+            
+        text_rotation_scale = ttk.Scale(text_rotation_frame, from_=-180, to=180,
+                 variable=watermark_vars['text_rotation'])
+        text_rotation_scale.configure(command=update_text_rotation_label)
+        text_rotation_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        ttk.Label(text_rotation_frame, textvariable=text_rotation_value).pack(side=tk.LEFT)
+        
         # 特效设置
         effect_frame = ttk.LabelFrame(scrollable_frame, text="特效设置", padding=10)
         effect_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -998,11 +1376,107 @@ class ImageProcessorApp:
                                         relief="ridge", bd=1)
         outline_color_preview.pack(side=tk.LEFT, padx=(5, 0))
         
+        # 图片水印设置
+        image_settings_frame = ttk.LabelFrame(scrollable_frame, text="图片水印设置", padding=10)
+        image_settings_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 图片选择
+        image_select_frame = ttk.Frame(image_settings_frame)
+        image_select_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(image_select_frame, text="图片文件:").pack(anchor=tk.W)
+        
+        def select_watermark_image():
+            file_path = filedialog.askopenfilename(
+                title="选择水印图片",
+                filetypes=[
+                    ("PNG图片", "*.png"),
+                    ("JPEG图片", "*.jpg *.jpeg"),
+                    ("所有图片文件", "*.png *.jpg *.jpeg *.bmp *.gif *.tiff")
+                ]
+            )
+            if file_path:
+                watermark_vars['image_path'].set(file_path)
+                self.display_image_on_canvas()
+                
+        image_path_frame = ttk.Frame(image_select_frame)
+        image_path_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        image_path_entry = ttk.Entry(image_path_frame, textvariable=watermark_vars['image_path'], state='readonly')
+        image_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        select_image_button = ttk.Button(image_path_frame, text="浏览...", command=select_watermark_image)
+        select_image_button.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 图片透明度
+        image_opacity_frame = ttk.Frame(image_settings_frame)
+        image_opacity_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(image_opacity_frame, text="透明度:").pack(side=tk.LEFT)
+        image_opacity_scale = ttk.Scale(image_opacity_frame, from_=0, to=100,
+                                       variable=watermark_vars['image_opacity'], orient=tk.HORIZONTAL,
+                                       command=lambda v: self.display_image_on_canvas())
+        image_opacity_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 创建一个显示整数透明度值的标签
+        image_opacity_value = tk.IntVar()
+        image_opacity_value.set(watermark_vars['image_opacity'].get())
+        
+        # 当滑块值变化时更新显示
+        def update_image_opacity_label(val):
+            image_opacity_value.set(int(float(val)))
+            
+        image_opacity_scale.configure(command=update_image_opacity_label)
+        image_opacity_label = ttk.Label(image_opacity_frame, textvariable=image_opacity_value)
+        image_opacity_label.pack(side=tk.LEFT)
+        
+        # 图片缩放
+        image_scale_frame = ttk.Frame(image_settings_frame)
+        image_scale_frame.pack(fill=tk.X)
+        
+        ttk.Label(image_scale_frame, text="缩放比例:").pack(side=tk.LEFT)
+        image_scale_scale = ttk.Scale(image_scale_frame, from_=0.1, to=3.0, 
+                                     variable=watermark_vars['image_scale'], orient=tk.HORIZONTAL,
+                                     command=lambda v: self.display_image_on_canvas())
+        image_scale_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 创建一个显示缩放比例值的标签
+        image_scale_value = tk.DoubleVar()
+        image_scale_value.set(watermark_vars['image_scale'].get())
+        
+        # 当滑块值变化时更新显示
+        def update_image_scale_label(val):
+            image_scale_value.set(round(float(val), 2))
+            
+        image_scale_scale.configure(command=update_image_scale_label)
+        image_scale_label = ttk.Label(image_scale_frame, textvariable=image_scale_value)
+        image_scale_label.pack(side=tk.LEFT)
+        
+        # 图片水印旋转设置
+        image_rotation_frame = ttk.Frame(image_settings_frame)
+        image_rotation_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(image_rotation_frame, text="图片旋转:").pack(side=tk.LEFT)
+        
+        # 创建一个显示一位小数的图片旋转角度标签
+        image_rotation_value = tk.DoubleVar()
+        image_rotation_value.set(round(watermark_vars['image_rotation'].get(), 1))
+        
+        # 当滑块值变化时更新显示（保留一位小数）
+        def update_image_rotation_label(val):
+            image_rotation_value.set(round(float(val), 1))
+            
+        image_rotation_scale = ttk.Scale(image_rotation_frame, from_=-180, to=180,
+                 variable=watermark_vars['image_rotation'])
+        image_rotation_scale.configure(command=update_image_rotation_label)
+        image_rotation_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        ttk.Label(image_rotation_frame, textvariable=image_rotation_value).pack(side=tk.LEFT)
+        
         # 位置设置
-        position_frame = ttk.LabelFrame(scrollable_frame, text="位置设置", padding=10)
+        position_frame = ttk.LabelFrame(scrollable_frame, text="文本水印位置设置", padding=10)
         position_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # 位置选项
+        # 文本水印位置选项
         positions = [
             ("左上角", "top-left"),
             ("右上角", "top-right"),
@@ -1020,29 +1494,46 @@ class ImageProcessorApp:
         
         ttk.Label(position_combo_frame, text="位置:").pack(side=tk.LEFT)
         
-        def position_changed(event):
-            selected_text = position_combo.get()
-            for text, key in positions:
-                if text == selected_text:
-                    position_var.set(key)
-                    self.display_image_on_canvas()
-                    break
-                    
-        def update_position_combo(*args):
-            current = position_var.get()
-            for text, key in positions:
-                if key == current:
-                    position_combo.set(text)
-                    break
-                    
         position_combo = ttk.Combobox(position_combo_frame, values=position_values, state="readonly")
         position_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
-        position_combo.bind("<<ComboboxSelected>>", position_changed)
+        position_combo.bind("<<ComboboxSelected>>", 
+                           lambda e: position_var.set([key for text, key in positions if text == position_combo.get()][0]))
         
         # 初始化位置组合框
-        update_position_combo()
-        position_var.trace('w', update_position_combo)
+        try:
+            current_position = position_var.get()
+            for text, key in positions:
+                if key == current_position:
+                    position_combo.set(text)
+                    break
+        except:
+            position_combo.set("右下角")
+            
+        # 图片水印位置设置
+        image_position_frame = ttk.LabelFrame(scrollable_frame, text="图片水印位置设置", padding=10)
+        image_position_frame.pack(fill=tk.X, padx=5, pady=5)
         
+        image_position_var = watermark_vars['image_position']
+        
+        image_position_combo_frame = ttk.Frame(image_position_frame)
+        image_position_combo_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(image_position_combo_frame, text="位置:").pack(side=tk.LEFT)
+        
+        image_position_combo = ttk.Combobox(image_position_combo_frame, values=position_values, state="readonly")
+        image_position_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        image_position_combo.bind("<<ComboboxSelected>>", 
+                           lambda e: image_position_var.set([key for text, key in positions if text == image_position_combo.get()][0]))
+        
+        # 初始化图片水印位置组合框
+        try:
+            current_image_position = image_position_var.get()
+            for text, key in positions:
+                if key == current_image_position:
+                    image_position_combo.set(text)
+                    break
+        except:
+            image_position_combo.set("右下角")
         # 模板管理
         template_frame = ttk.LabelFrame(scrollable_frame, text="模板管理", padding=10)
         template_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -1070,6 +1561,8 @@ class ImageProcessorApp:
                 elif isinstance(var, tk.BooleanVar):
                     settings[key] = var.get()
                 elif isinstance(var, tk.IntVar):
+                    settings[key] = var.get()
+                elif isinstance(var, tk.DoubleVar):
                     settings[key] = var.get()
             
             # 检查是否已存在同名模板
@@ -1121,9 +1614,18 @@ class ImageProcessorApp:
                             var.set(value)
                         elif isinstance(var, tk.IntVar):
                             var.set(value)
+                        elif isinstance(var, tk.DoubleVar):
+                            var.set(value)
                 self.display_image_on_canvas()
                 # 更新位置组合框
-                update_position_combo()
+                try:
+                    current_position = position_var.get()
+                    for text, key in positions:
+                        if key == current_position:
+                            position_combo.set(text)
+                            break
+                except:
+                    position_combo.set("右下角")
                 messagebox.showinfo("成功", f"模板 '{name}' 已加载")
             else:
                 messagebox.showerror("错误", "无法加载模板")
@@ -1173,6 +1675,12 @@ class ImageProcessorApp:
         watermark_vars['outline'].trace('w', update_preview)
         watermark_vars['outline_color'].trace('w', update_preview)
         watermark_vars['position'].trace('w', update_preview)
+        watermark_vars['text_rotation'].trace('w', update_preview)
+        watermark_vars['image_path'].trace('w', update_preview)
+        watermark_vars['image_opacity'].trace('w', update_preview)
+        watermark_vars['image_scale'].trace('w', update_preview)
+        watermark_vars['image_position'].trace('w', update_preview)
+        watermark_vars['image_rotation'].trace('w', update_preview)
     
     def export_image(self):
         """导出图像"""

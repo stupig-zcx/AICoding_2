@@ -1,15 +1,21 @@
 {
-  "1": {
-    "text": "zcx  2019.2.1",
-    "font_family": "Arial",
-    "font_size": 21,
+  "zcx2019": {
+    "text": "祝晨曦2019.2.1",
+    "font_family": "Microsoft YaHei",
+    "font_size": 20,
     "bold": false,
     "italic": false,
-    "color": "#cd0532",
-    "opacity": 196,
+    "color": "#ff0000",
+    "opacity": 0,
     "shadow": false,
     "outline": false,
     "outline_color": "#FFFFFF",
-    "position": "bottom-right"
+    "position": "custom",
+    "custom_x": 472,
+    "custom_y": 286,
+    "image_path": "",
+    "image_opacity": 100,
+    "use_image": false,
+    "image_scale": 1.0
   }
 }
