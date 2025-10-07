@@ -181,6 +181,7 @@ class ImageProcessorApp:
         self.image_list = []  # 存储导入的图像列表
         self.current_image_index = -1  # 当前显示的图像索引
         self.thumbnail_size = (80, 80)  # 缩略图大小
+        self.redo_image = None  # 用于重做操作的图像
         
         # 默认水印变量
         self.default_watermark_vars = {
@@ -194,8 +195,13 @@ class ImageProcessorApp:
             'shadow': tk.BooleanVar(value=False),
             'outline': tk.BooleanVar(value=False),
             'outline_color': tk.StringVar(value="#FFFFFF"),  # 白色描边
-            'position': tk.StringVar(value="bottom-right")  # 位置
+            'position': tk.StringVar(value="bottom-right"),  # 位置
+            'custom_x': tk.IntVar(value=0),  # 自定义X坐标
+            'custom_y': tk.IntVar(value=0)   # 自定义Y坐标
         }
+        
+        # 水印拖拽相关变量
+        self.watermark_drag_data = {"x": 0, "y": 0, "dragging": False}
         
         # 水印模板管理器
         self.template_manager = WatermarkTemplateManager(self)
@@ -213,7 +219,7 @@ class ImageProcessorApp:
         file_menu.add_command(label="打开图像", command=self.open_image)
         file_menu.add_command(label="批量导入", command=self.import_images)
         file_menu.add_command(label="导入文件夹", command=self.import_folder)
-        file_menu.add_command(label="保存", command=self.save_image)
+        file_menu.add_command(label="保存", command=self.export_image)  # 修复：将 save_image 改为 export_image
         file_menu.add_separator()
         file_menu.add_command(label="退出", command=self.root.quit)
         
@@ -231,95 +237,118 @@ class ImageProcessorApp:
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # 左侧控制面板
-        control_frame = ttk.Frame(main_frame, width=200)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        control_frame.pack_propagate(False)
+        # 左侧框架（图像列表）
+        left_frame = ttk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         
-        # 图像列表框架
-        image_list_frame = ttk.LabelFrame(control_frame, text="图像列表", padding=5)
-        image_list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        # 左上角框架（导入按钮）
+        import_frame = ttk.Frame(left_frame)
+        import_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Button(import_frame, text="导入图像", command=self.import_images).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # 图像列表
+        list_label = ttk.Label(left_frame, text="图像列表:")
+        list_label.pack(anchor=tk.W)
         
         # 创建可滚动的图像列表
-        self.image_list_widget = ScrollableImageList(image_list_frame, self)
-        self.image_list_widget.pack(fill=tk.BOTH, expand=True)
+        self.image_list_widget = ScrollableImageList(left_frame, self)
+        self.image_list_widget.pack(fill=tk.Y, expand=True)
         
-        # 控制面板按钮
-        ttk.Button(control_frame, text="打开图像", command=self.open_image).pack(pady=5, fill=tk.X)
-        ttk.Button(control_frame, text="批量导入", command=self.import_images).pack(pady=5, fill=tk.X)
-        ttk.Button(control_frame, text="导入文件夹", command=self.import_folder).pack(pady=5, fill=tk.X)
-        ttk.Button(control_frame, text="保存图像", command=self.save_image).pack(pady=5, fill=tk.X)
-        ttk.Button(control_frame, text="重置图像", command=self.reset_image).pack(pady=5, fill=tk.X)
-        ttk.Button(control_frame, text="水印设置", command=self.show_watermark_settings).pack(pady=5, fill=tk.X)
-        
-        # 右侧主显示区域
+        # 右侧框架（预览和控制）
         right_frame = ttk.Frame(main_frame)
-        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        # 图像显示区域
-        image_frame = ttk.Frame(right_frame)
-        image_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        # 预览框架
+        preview_frame = ttk.LabelFrame(right_frame, text="预览", padding=10)
+        preview_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
-        # 滚动条
-        self.canvas = tk.Canvas(image_frame, bg="gray")
-        v_scrollbar = ttk.Scrollbar(image_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        h_scrollbar = ttk.Scrollbar(image_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
-        self.canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        # 创建画布用于显示图像
+        self.canvas = tk.Canvas(preview_frame, bg="gray")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
         
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        # 绑定鼠标事件用于水印拖拽
+        self.canvas.bind("<Button-1>", self.start_watermark_drag)
+        self.canvas.bind("<B1-Motion>", self.on_watermark_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.end_watermark_drag)
         
-        # 拖拽提示标签
-        self.drop_label = tk.Label(self.canvas, text="拖拽图像文件到此处\n或使用左侧按钮导入图像", 
-                                   bg="lightgray", relief="ridge", padx=20, pady=20)
-        self.drop_label.pack(expand=True)
+        # 图像信息标签
+        self.info_label = ttk.Label(right_frame, text="")
+        self.info_label.pack(anchor=tk.W, pady=(0, 10))
         
-        # 如果支持拖拽功能，注册拖拽事件
-        if HAS_DND:
-            # 注册画布的拖拽事件
-            self.canvas.drop_target_register(DND_FILES)
-            self.canvas.dnd_bind('<<Drop>>', self.on_drop)
-            # 注册拖拽提示标签的拖拽事件
-            self.drop_label.drop_target_register(DND_FILES)
-            self.drop_label.dnd_bind('<<Drop>>', self.on_drop)
-        else:
-            # 如果没有拖拽功能，添加提示
-            info_label = tk.Label(control_frame, text="提示: 安装tkinterdnd2库可启用拖拽功能", 
-                                 fg="red", font=("Arial", 8))
-            info_label.pack(side=tk.BOTTOM, pady=5)
+        # 控制框架
+        control_frame = ttk.LabelFrame(right_frame, text="控制", padding=10)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # 图像处理选项
-        processing_frame = ttk.LabelFrame(right_frame, text="图像处理", padding=5)
-        processing_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        # 亮度控制
+        brightness_frame = ttk.Frame(control_frame)
+        brightness_frame.pack(fill=tk.X, pady=(0, 5))
         
-        # 亮度和对比度调整
-        adjust_frame = ttk.Frame(processing_frame)
-        adjust_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(adjust_frame, text="亮度:").pack(side=tk.LEFT)
-        self.brightness_scale = ttk.Scale(adjust_frame, from_=0.0, to=2.0, value=1.0, command=self.adjust_brightness)
+        ttk.Label(brightness_frame, text="亮度:").pack(side=tk.LEFT)
+        self.brightness_scale = ttk.Scale(brightness_frame, from_=0.0, to=2.0, value=1.0, 
+                                         command=self.adjust_brightness)
         self.brightness_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
-        ttk.Label(adjust_frame, text="对比度:").pack(side=tk.LEFT)
-        self.contrast_scale = ttk.Scale(adjust_frame, from_=0.0, to=2.0, value=1.0, command=self.adjust_contrast)
+        # 对比度控制
+        contrast_frame = ttk.Frame(control_frame)
+        contrast_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(contrast_frame, text="对比度:").pack(side=tk.LEFT)
+        self.contrast_scale = ttk.Scale(contrast_frame, from_=0.0, to=2.0, value=1.0, 
+                                       command=self.adjust_contrast)
         self.contrast_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
-        # 滤镜选项
-        filter_frame = ttk.Frame(processing_frame)
-        filter_frame.pack(fill=tk.X, pady=5)
+        # 滤镜按钮
+        filter_frame = ttk.Frame(control_frame)
+        filter_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(filter_frame, text="滤镜:").pack(side=tk.LEFT)
-        ttk.Button(filter_frame, text="模糊", command=lambda: self.apply_filter(ImageFilter.BLUR)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(filter_frame, text="边缘增强", command=lambda: self.apply_filter(ImageFilter.EDGE_ENHANCE)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(filter_frame, text="锐化", command=lambda: self.apply_filter(ImageFilter.SHARPEN)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(filter_frame, text="灰度化", command=self.convert_to_grayscale).pack(side=tk.LEFT, padx=2)
+        ttk.Button(filter_frame, text="模糊", 
+                  command=lambda: self.apply_filter(ImageFilter.BLUR)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(filter_frame, text="边缘增强", 
+                  command=lambda: self.apply_filter(ImageFilter.EDGE_ENHANCE)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(filter_frame, text="锐化", 
+                  command=lambda: self.apply_filter(ImageFilter.SHARPEN)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(filter_frame, text="灰度", 
+                  command=self.convert_to_grayscale).pack(side=tk.LEFT, padx=(0, 5))
         
-        # 信息显示区域
-        self.info_label = ttk.Label(control_frame, text="请导入图像文件开始处理")
-        self.info_label.pack(side=tk.BOTTOM, pady=10)
+        # 添加撤回和恢复默认按钮
+        ttk.Button(filter_frame, text="撤回", 
+                  command=self.undo_filter).pack(side=tk.LEFT, padx=(10, 5))
+        ttk.Button(filter_frame, text="恢复默认", 
+                  command=self.reset_image).pack(side=tk.LEFT, padx=(0, 5))
         
+        # 按钮框架
+        button_frame = ttk.Frame(right_frame)
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(button_frame, text="水印设置", command=self.show_watermark_settings).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="导出图像", command=self.export_image).pack(side=tk.RIGHT)
+        
+        # 支持拖拽导入
+        if HAS_DND:
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind('<<Drop>>', self.on_drop)
+    
     def open_image(self):
+        """打开单个图像文件"""
+        file_path = filedialog.askopenfilename(
+            title="选择图像文件",
+            filetypes=[
+                ("图像文件", "*.jpg *.jpeg *.png *.bmp *.gif *.tiff"),
+                ("JPEG文件", "*.jpg *.jpeg"),
+                ("PNG文件", "*.png"),
+                ("BMP文件", "*.bmp"),
+                ("GIF文件", "*.gif"),
+                ("TIFF文件", "*.tiff"),
+                ("所有文件", "*.*")
+            ]
+        )
+        
+        if file_path:
+            self.add_images_to_list([file_path])
+    
+    def import_images(self):
+        """批量导入图像文件"""
         file_paths = filedialog.askopenfilenames(
             title="选择图像文件",
             filetypes=[
@@ -327,6 +356,8 @@ class ImageProcessorApp:
                 ("JPEG文件", "*.jpg *.jpeg"),
                 ("PNG文件", "*.png"),
                 ("BMP文件", "*.bmp"),
+                ("GIF文件", "*.gif"),
+                ("TIFF文件", "*.tiff"),
                 ("所有文件", "*.*")
             ]
         )
@@ -334,26 +365,25 @@ class ImageProcessorApp:
         if file_paths:
             self.add_images_to_list(file_paths)
     
-    def import_images(self):
-        self.open_image()
-    
     def import_folder(self):
+        """导入文件夹中的所有图像"""
         folder_path = filedialog.askdirectory(title="选择包含图像的文件夹")
+        
         if folder_path:
             image_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff')
             image_files = []
             
-            for file in os.listdir(folder_path):
-                if file.lower().endswith(image_extensions):
-                    image_files.append(os.path.join(folder_path, file))
+            for file_name in os.listdir(folder_path):
+                if file_name.lower().endswith(image_extensions):
+                    image_files.append(os.path.join(folder_path, file_name))
             
             if image_files:
                 self.add_images_to_list(image_files)
             else:
-                messagebox.showinfo("提示", "所选文件夹中未找到图像文件")
+                messagebox.showinfo("提示", "所选文件夹中没有找到支持的图像文件")
     
     def add_images_to_list(self, file_paths):
-        # 添加新图像到列表
+        """将图像添加到列表中"""
         for file_path in file_paths:
             if file_path not in [img['path'] for img in self.image_list]:
                 try:
@@ -382,86 +412,81 @@ class ImageProcessorApp:
                 except Exception as e:
                     messagebox.showerror("错误", f"无法加载图像 {file_path}:\n{str(e)}")
         
-        # 如果这是第一批图像，自动选择第一个
+        # 如果这是第一个导入的图像，自动加载它
         if len(self.image_list) > 0 and self.current_image_index == -1:
             self.load_image(0)
     
-    def create_thumbnail(self, file_path):
-        """创建图像缩略图"""
+    def create_thumbnail(self, image_path):
+        """创建缩略图"""
         try:
-            img = Image.open(file_path)
-            img.thumbnail(self.thumbnail_size, Image.LANCZOS)
-            # 创建透明背景
-            thumbnail = Image.new('RGBA', self.thumbnail_size, (0, 0, 0, 0))
-            # 计算居中位置
-            x = (self.thumbnail_size[0] - img.size[0]) // 2
-            y = (self.thumbnail_size[1] - img.size[1]) // 2
-            # 将缩略图粘贴到透明背景上
-            thumbnail.paste(img, (x, y))
-            return ImageTk.PhotoImage(thumbnail)
+            image = Image.open(image_path)
+            image.thumbnail(self.thumbnail_size, Image.LANCZOS)
+            photo = ImageTk.PhotoImage(image)
+            return photo
         except Exception as e:
-            # 如果创建缩略图失败，返回默认图像
-            thumbnail = Image.new('RGBA', self.thumbnail_size, (128, 128, 128, 255))
-            return ImageTk.PhotoImage(thumbnail)
+            # 如果无法创建缩略图，创建一个占位符
+            placeholder = Image.new('RGB', self.thumbnail_size, color='lightgray')
+            draw = ImageDraw.Draw(placeholder)
+            draw.text((10, self.thumbnail_size[1]//2), "无法加载", fill='black')
+            photo = ImageTk.PhotoImage(placeholder)
+            return photo
     
     def load_image(self, index):
+        """加载并显示图像"""
         if 0 <= index < len(self.image_list):
             self.current_image_index = index
-            file_path = self.image_list[index]['path']
+            image_info = self.image_list[index]
+            self.file_path = image_info['path']
             
             try:
-                self.original_image = Image.open(file_path)
+                self.original_image = Image.open(self.file_path)
                 self.processed_image = self.original_image.copy()
-                self.file_path = file_path
                 self.display_image_on_canvas()
-                self.update_info()
-                
-                # 高亮显示当前选中的图像
-                # 注意：在新的缩略图界面中，我们不需要特殊的高亮显示
             except Exception as e:
-                messagebox.showerror("错误", f"无法打开图像文件:\n{str(e)}")
+                messagebox.showerror("错误", f"无法加载图像 {self.file_path}:\n{str(e)}")
     
     def display_image_on_canvas(self):
-        # 隐藏拖拽提示
-        self.drop_label.pack_forget()
-        
-        if self.processed_image and self.current_image_index >= 0:
-            # 应用水印（使用当前图像的水印设置）
-            image_with_watermark = self.apply_watermark(self.processed_image)
+        """在画布上显示图像"""
+        if self.processed_image:
+            # 应用水印
+            watermarked_image = self.apply_watermark(self.processed_image)
             
-            # 调整图像大小以适应显示区域
+            # 获取画布尺寸
             canvas_width = self.canvas.winfo_width()
             canvas_height = self.canvas.winfo_height()
             
-            # 如果画布大小为1，说明还未正确初始化，使用默认大小
-            if canvas_width <= 1:
-                canvas_width = 600
-            if canvas_height <= 1:
-                canvas_height = 400
-            
-            img_width, img_height = image_with_watermark.size
+            # 如果画布尺寸为1（初始状态），使用预览框架的尺寸
+            if canvas_width <= 1 or canvas_height <= 1:
+                canvas_width = self.canvas.winfo_reqwidth()
+                canvas_height = self.canvas.winfo_reqheight()
             
             # 计算缩放比例
-            scale_w = canvas_width / img_width
-            scale_h = canvas_height / img_height
-            scale = min(scale_w, scale_h, 1.0)  # 不放大图像
+            img_width, img_height = watermarked_image.size
+            scale_x = canvas_width / img_width
+            scale_y = canvas_height / img_height
+            scale = min(scale_x, scale_y, 1.0)  # 不放大图像
             
+            # 计算新尺寸
             new_width = int(img_width * scale)
             new_height = int(img_height * scale)
             
-            # 缩放图像
-            resized_image = image_with_watermark.resize((new_width, new_height), Image.LANCZOS)
+            # 调整图像大小
+            resized_image = watermarked_image.resize((new_width, new_height), Image.LANCZOS)
+            
+            # 创建PhotoImage
             self.display_image = ImageTk.PhotoImage(resized_image)
             
-            # 清除画布并显示新图像
+            # 清空画布
             self.canvas.delete("all")
-            self.canvas.create_image(canvas_width/2, canvas_height/2, image=self.display_image)
-            self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
-    
-    def update_info(self):
-        if self.processed_image:
-            width, height = self.processed_image.size
-            file_size = os.path.getsize(self.file_path) if self.file_path and os.path.exists(self.file_path) else 0
+            
+            # 在画布中心显示图像
+            x = (canvas_width - new_width) // 2
+            y = (canvas_height - new_height) // 2
+            self.canvas.create_image(x, y, anchor=tk.NW, image=self.display_image)
+            
+            # 更新图像信息
+            width, height = self.original_image.size
+            file_size = os.path.getsize(self.file_path)
             file_size_str = self.format_file_size(file_size)
             image_info = f"尺寸: {width}x{height}px\n文件大小: {file_size_str}\n图像 {self.current_image_index + 1}/{len(self.image_list)}"
             self.info_label.config(text=image_info)
@@ -489,17 +514,37 @@ class ImageProcessorApp:
     
     def apply_filter(self, filter_type):
         if self.processed_image:
+            # 保存当前状态以支持撤回操作
+            self.redo_image = self.processed_image.copy()
             self.processed_image = self.processed_image.filter(filter_type)
             self.display_image_on_canvas()
     
     def convert_to_grayscale(self):
         if self.processed_image:
+            # 保存当前状态以支持撤回操作
+            self.redo_image = self.processed_image.copy()
             self.processed_image = self.processed_image.convert("L")
             self.display_image_on_canvas()
     
+    def undo_filter(self):
+        """撤回上一次滤镜操作"""
+        if self.original_image and self.redo_image:
+            # 交换当前图像和重做图像
+            temp = self.processed_image
+            self.processed_image = self.redo_image
+            self.redo_image = temp
+            self.display_image_on_canvas()
+        elif self.original_image:
+            # 如果没有重做图像，恢复到原始图像
+            self.redo_image = self.processed_image
+            self.processed_image = self.original_image.copy()
+            self.display_image_on_canvas()
+    
     def reset_image(self):
+        """恢复图像到初始状态"""
         if self.original_image:
             self.processed_image = self.original_image.copy()
+            self.redo_image = None  # 清除重做历史
             self.brightness_scale.set(1.0)
             self.contrast_scale.set(1.0)
             self.display_image_on_canvas()
@@ -618,7 +663,14 @@ class ImageProcessorApp:
         position = watermark_vars['position'].get()
         margin = 10
         
-        if position == "top-left":
+        # 检查是否是自定义位置
+        if position == "custom":
+            x = watermark_vars['custom_x'].get()
+            y = watermark_vars['custom_y'].get()
+            # 确保水印在图像范围内
+            x = max(0, min(x, image.size[0] - text_width))
+            y = max(0, min(y, image.size[1] - text_height))
+        elif position == "top-left":
             x, y = margin, margin
         elif position == "top-right":
             x, y = image.size[0] - text_width - margin, margin
@@ -661,6 +713,112 @@ class ImageProcessorApp:
         watermarked_image = Image.alpha_composite(image.convert('RGBA'), watermark)
         
         return watermarked_image.convert('RGB') if image.mode == 'RGB' else watermarked_image
+    
+    def start_watermark_drag(self, event):
+        """开始水印拖拽"""
+        if self.current_image_index < 0:
+            return
+            
+        # 获取当前图像的水印设置
+        current_image = self.image_list[self.current_image_index]
+        watermark_vars = current_image['watermark_vars']
+        
+        # 设置水印位置为自定义
+        watermark_vars['position'].set("custom")
+        
+        # 设置拖拽状态
+        self.watermark_drag_data["x"] = event.x
+        self.watermark_drag_data["y"] = event.y
+        self.watermark_drag_data["dragging"] = True
+        
+        # 计算图像在画布中的位置和缩放比例
+        if self.processed_image:
+            # 获取画布尺寸
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+            
+            # 如果画布尺寸为1（初始状态），使用预览框架的尺寸
+            if canvas_width <= 1 or canvas_height <= 1:
+                canvas_width = self.canvas.winfo_reqwidth()
+                canvas_height = self.canvas.winfo_reqheight()
+            
+            # 计算缩放比例
+            img_width, img_height = self.processed_image.size
+            scale_x = canvas_width / img_width
+            scale_y = canvas_height / img_height
+            scale = min(scale_x, scale_y, 1.0)  # 不放大图像
+            
+            # 计算图像在画布中的实际位置
+            display_width = int(img_width * scale)
+            display_height = int(img_height * scale)
+            offset_x = (canvas_width - display_width) // 2
+            offset_y = (canvas_height - display_height) // 2
+            
+            # 将鼠标坐标转换为图像坐标
+            image_x = int((event.x - offset_x) / scale)
+            image_y = int((event.y - offset_y) / scale)
+            
+            # 确保坐标在图像范围内
+            image_x = max(0, min(image_x, img_width - 1))
+            image_y = max(0, min(image_y, img_height - 1))
+            
+            # 设置水印位置
+            watermark_vars['custom_x'].set(image_x)
+            watermark_vars['custom_y'].set(image_y)
+    
+    def on_watermark_drag(self, event):
+        """水印拖拽中"""
+        if not self.watermark_drag_data["dragging"] or self.current_image_index < 0:
+            return
+            
+        # 获取当前图像的水印设置
+        current_image = self.image_list[self.current_image_index]
+        watermark_vars = current_image['watermark_vars']
+        
+        # 设置水印位置为自定义
+        watermark_vars['position'].set("custom")
+        
+        # 计算图像在画布中的位置和缩放比例
+        if self.processed_image:
+            # 获取画布尺寸
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+            
+            # 如果画布尺寸为1（初始状态），使用预览框架的尺寸
+            if canvas_width <= 1 or canvas_height <= 1:
+                canvas_width = self.canvas.winfo_reqwidth()
+                canvas_height = self.canvas.winfo_reqheight()
+            
+            # 计算缩放比例
+            img_width, img_height = self.processed_image.size
+            scale_x = canvas_width / img_width
+            scale_y = canvas_height / img_height
+            scale = min(scale_x, scale_y, 1.0)  # 不放大图像
+            
+            # 计算图像在画布中的实际位置
+            display_width = int(img_width * scale)
+            display_height = int(img_height * scale)
+            offset_x = (canvas_width - display_width) // 2
+            offset_y = (canvas_height - display_height) // 2
+            
+            # 将鼠标坐标转换为图像坐标
+            image_x = int((event.x - offset_x) / scale)
+            image_y = int((event.y - offset_y) / scale)
+            
+            # 确保坐标在图像范围内
+            image_x = max(0, min(image_x, img_width - 1))
+            image_y = max(0, min(image_y, img_height - 1))
+            
+            # 设置水印位置
+            watermark_vars['custom_x'].set(image_x)
+            watermark_vars['custom_y'].set(image_y)
+        
+        # 更新预览
+        self.display_image_on_canvas()
+    
+    def end_watermark_drag(self, event):
+        """结束水印拖拽"""
+        self.watermark_drag_data["dragging"] = False
     
     def show_watermark_settings(self):
         """显示水印设置对话框"""
@@ -790,37 +948,27 @@ class ImageProcessorApp:
                                 relief="ridge", bd=1)
         color_preview.pack(side=tk.LEFT, padx=(5, 0))
         
-        def update_text_color_preview(*args):
-            color_preview.config(bg=watermark_vars['color'].get())
-            
-        watermark_vars['color'].trace('w', update_text_color_preview)
-        
         # 透明度
         opacity_frame = ttk.Frame(color_frame)
         opacity_frame.pack(fill=tk.X, pady=(0, 5))
         
         ttk.Label(opacity_frame, text="透明度:").pack(side=tk.LEFT)
-        # 透明度范围调整为0-100
-        opacity_scale = ttk.Scale(opacity_frame, from_=0, to=100, variable=watermark_vars['opacity'], 
-                                orient=tk.HORIZONTAL, command=lambda v: self.display_image_on_canvas())
-        opacity_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 5))
+        opacity_scale = ttk.Scale(opacity_frame, from_=0, to=100, 
+                                 variable=watermark_vars['opacity'], orient=tk.HORIZONTAL,
+                                 command=lambda v: self.display_image_on_canvas())
+        opacity_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
-        # 显示整数透明度值
+        # 创建一个显示整数透明度值的标签
         opacity_value = tk.IntVar()
         opacity_value.set(watermark_vars['opacity'].get())
         
+        # 当滑块值变化时更新显示
         def update_opacity_label(val):
             opacity_value.set(int(float(val)))
             
         opacity_scale.configure(command=update_opacity_label)
         opacity_label = ttk.Label(opacity_frame, textvariable=opacity_value)
         opacity_label.pack(side=tk.LEFT)
-        
-        # 更新透明度变量时同步标签
-        def sync_opacity_label(*args):
-            opacity_value.set(watermark_vars['opacity'].get())
-            
-        watermark_vars['opacity'].trace('w', sync_opacity_label)
         
         # 特效设置
         effect_frame = ttk.LabelFrame(scrollable_frame, text="特效设置", padding=10)
@@ -850,36 +998,32 @@ class ImageProcessorApp:
                                         relief="ridge", bd=1)
         outline_color_preview.pack(side=tk.LEFT, padx=(5, 0))
         
-        def update_outline_color_preview(*args):
-            outline_color_preview.config(bg=watermark_vars['outline_color'].get())
-            
-        watermark_vars['outline_color'].trace('w', update_outline_color_preview)
-        
         # 位置设置
         position_frame = ttk.LabelFrame(scrollable_frame, text="位置设置", padding=10)
         position_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        position_var = watermark_vars['position']
-        
+        # 位置选项
         positions = [
             ("左上角", "top-left"),
             ("右上角", "top-right"),
             ("左下角", "bottom-left"),
             ("右下角", "bottom-right"),
-            ("居中", "center")
+            ("居中", "center"),
+            ("自定义(拖拽)", "custom")
         ]
         
+        position_values = [text for text, key in positions]
+        position_var = watermark_vars['position']
+        
         position_combo_frame = ttk.Frame(position_frame)
-        position_combo_frame.pack(fill=tk.X)
+        position_combo_frame.pack(fill=tk.X, pady=(0, 5))
         
         ttk.Label(position_combo_frame, text="位置:").pack(side=tk.LEFT)
-        position_values = [p[0] for p in positions]
-        position_keys = [p[1] for p in positions]
         
         def position_changed(event):
-            selected = position_combo.get()
+            selected_text = position_combo.get()
             for text, key in positions:
-                if text == selected:
+                if text == selected_text:
                     position_var.set(key)
                     self.display_image_on_canvas()
                     break
@@ -918,13 +1062,7 @@ class ImageProcessorApp:
                 messagebox.showwarning("警告", "请输入模板名称")
                 return
                 
-            # 检查是否已存在同名模板
-            if name in self.template_manager.get_template_names():
-                result = messagebox.askyesno("确认", f"模板 '{name}' 已存在，是否覆盖？")
-                if not result:
-                    return
-                    
-            # 保存当前设置为模板
+            # 收集当前水印设置
             settings = {}
             for key, var in watermark_vars.items():
                 if isinstance(var, tk.StringVar):
@@ -933,10 +1071,17 @@ class ImageProcessorApp:
                     settings[key] = var.get()
                 elif isinstance(var, tk.IntVar):
                     settings[key] = var.get()
-                    
+            
+            # 检查是否已存在同名模板
+            if name in self.template_manager.get_template_names():
+                result = messagebox.askyesno("确认", f"模板 '{name}' 已存在，是否覆盖?")
+                if not result:
+                    return
+            
+            # 保存模板
             self.template_manager.add_template(name, settings)
-            messagebox.showinfo("成功", f"模板 '{name}' 已保存")
             update_template_list()
+            messagebox.showinfo("成功", f"模板 '{name}' 已保存")
             
         save_button = ttk.Button(save_template_frame, text="保存模板", command=save_template)
         save_button.pack(side=tk.LEFT)
@@ -976,59 +1121,67 @@ class ImageProcessorApp:
                             var.set(value)
                         elif isinstance(var, tk.IntVar):
                             var.set(value)
-                            
                 self.display_image_on_canvas()
+                # 更新位置组合框
+                update_position_combo()
                 messagebox.showinfo("成功", f"模板 '{name}' 已加载")
             else:
-                messagebox.showerror("错误", f"无法加载模板 '{name}'")
+                messagebox.showerror("错误", "无法加载模板")
                 
         load_button = ttk.Button(load_template_frame, text="加载模板", command=load_template)
         load_button.pack(side=tk.LEFT)
         
         # 删除模板
+        delete_template_frame = ttk.Frame(template_frame)
+        delete_template_frame.pack(fill=tk.X)
+        
         def delete_template():
             name = template_list_var.get()
             if not name:
                 messagebox.showwarning("警告", "请选择一个模板")
                 return
                 
-            result = messagebox.askyesno("确认", f"确定要删除模板 '{name}' 吗？")
+            result = messagebox.askyesno("确认", f"确定要删除模板 '{name}' 吗?")
             if result:
                 self.template_manager.remove_template(name)
                 update_template_list()
                 messagebox.showinfo("成功", f"模板 '{name}' 已删除")
                 
-        delete_button = ttk.Button(template_frame, text="删除选中模板", command=delete_template)
-        delete_button.pack(anchor=tk.W)
+        delete_button = ttk.Button(delete_template_frame, text="删除模板", command=delete_template)
+        delete_button.pack(side=tk.LEFT)
         
         # 将canvas和scrollbar添加到main_frame
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # 按钮框架
-        button_frame = ttk.Frame(watermark_dialog)
-        button_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        def apply_settings():
-            self.display_image_on_canvas()
-            watermark_dialog.destroy()
-            
-        ttk.Button(button_frame, text="确定", command=apply_settings).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(button_frame, text="取消", command=watermark_dialog.destroy).pack(side=tk.RIGHT, padx=5)
-        
         # 确保初始时正确设置滚动区域
         watermark_dialog.after(100, lambda: canvas.configure(scrollregion=canvas.bbox("all")))
         
-        # 绑定文本变化事件，实时预览
-        watermark_vars['text'].trace('w', lambda *args: self.display_image_on_canvas())
+        # 绑定实时预览更新
+        def update_preview(*args):
+            self.display_image_on_canvas()
+            
+        # 为所有相关变量添加跟踪
+        watermark_vars['text'].trace('w', update_preview)
+        watermark_vars['font_family'].trace('w', update_preview)
+        watermark_vars['font_size'].trace('w', update_preview)
+        watermark_vars['bold'].trace('w', update_preview)
+        watermark_vars['italic'].trace('w', update_preview)
+        watermark_vars['color'].trace('w', update_preview)
+        watermark_vars['opacity'].trace('w', update_preview)
+        watermark_vars['shadow'].trace('w', update_preview)
+        watermark_vars['outline'].trace('w', update_preview)
+        watermark_vars['outline_color'].trace('w', update_preview)
+        watermark_vars['position'].trace('w', update_preview)
     
-    def save_image(self):
+    def export_image(self):
+        """导出图像"""
         if self.processed_image:
-            # 创建导出设置窗口
+            # 创建导出对话框
             export_dialog = tk.Toplevel(self.root)
-            export_dialog.title("导出设置")
-            export_dialog.geometry("400x600")
-            export_dialog.resizable(True, True)  # 允许调整大小
+            export_dialog.title("导出图像")
+            export_dialog.geometry("500x600")
+            export_dialog.resizable(True, True)
             export_dialog.transient(self.root)
             export_dialog.grab_set()
             
